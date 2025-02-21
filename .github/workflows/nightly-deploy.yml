@@ -30,20 +30,20 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
-#      - name: Launch Temporary EC2 for Smoke Test
-#        id: launch_ec2
-#        run: |
-#          INSTANCE_ID=$(aws ec2 run-instances \
-#            --image-id ami-053a45fff0a704a47 \
-#            --count 1 \
-#            --instance-type t2.micro \
-#            --key-name ec2TestInstanceKey \
-#            --security-group-ids sg-0441294b996219624 \
-#            --subnet-id subnet-0931b083102901d6d \
-#            --query 'Instances[0].InstanceId' \
-#            --output text)
-#          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
-#          aws ec2 wait instance-running --instance-ids $INSTANCE_ID
+      - name: Launch Temporary EC2 for Smoke Test
+        id: launch_ec2
+        run: |
+          INSTANCE_ID=$(aws ec2 run-instances \
+            --image-id ami-053a45fff0a704a47 \
+            --count 1 \
+            --instance-type t2.micro \
+            --key-name ec2TestInstanceKey \
+            --security-group-ids sg-0441294b996219624 \
+            --subnet-id subnet-0931b083102901d6d \
+            --query 'Instances[0].InstanceId' \
+            --output text)
+          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+          aws ec2 wait instance-running --instance-ids $INSTANCE_ID
 
       - name: Set up SSH Key
         run: |
@@ -52,7 +52,7 @@ jobs:
 
       - name: Provision Application on EC2 and Run Smoke Tests
         run: |
-          PUBLIC_DNS=$(aws ec2 describe-instances --instance-ids i-02cfe0b0e157a8996 \
+          PUBLIC_DNS=$(aws ec2 describe-instances --instance-ids ${{ env.INSTANCE_ID }} \
             --query 'Reservations[0].Instances[0].PublicDnsName' \
             --output text)
           ssh -i ec2-key.pem -o StrictHostKeyChecking=no ec2-user@$PUBLIC_DNS << EOF
