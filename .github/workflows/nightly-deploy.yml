@@ -38,8 +38,8 @@ jobs:
             --count 1 \
             --instance-type t2.micro \
             --key-name ec2TestInstanceKey \
-            --security-group-ids sg-0441294b996219624 \
-            --subnet-id subnet-0931b083102901d6d \
+            --security-group-ids sg-06ed8968a7a3ec08f \
+            --subnet-id subnet-058dd85267834457a \
             --query 'Instances[0].InstanceId' \
             --output text)
           echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
