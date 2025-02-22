@@ -72,7 +72,8 @@ jobs:
             git clone $SOURCE_REPO app
             cd app
             mysql -h ${{ secrets.RDS_ENDPOINT }} -P 3306 -u ${{ secrets.RDS_USERNAME }} -p"${{ secrets.RDS_PASSWORD }}" ${{ secrets.RDS_DBNAME }} < db_init.sql
-            docker-compose up -d
+            docker-compose -f docker-compose-prod.yml up -d
+            sleep 10
             curl -f http://localhost:5173/ || exit 1
           EOF
 
