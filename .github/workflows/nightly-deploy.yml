@@ -14,7 +14,6 @@ jobs:
 
     env:
       AWS_REGION: us-east-1
-      ECR_REPOSITORY: my-ecr-repo  # Replace with your ECR repo name
       IMAGE_TAG: latest
       SOURCE_REPO: https://github.com/TiansiGu/crud-react-node-mySQL-go-source.git  # source repo URL
 
@@ -55,6 +54,7 @@ jobs:
           PUBLIC_DNS=$(aws ec2 describe-instances --instance-ids ${{ env.INSTANCE_ID }} \
             --query 'Reservations[0].Instances[0].PublicDnsName' \
             --output text)
+          echo "PUBLIC_DNS=$PUBLIC_DNS" >> $GITHUB_ENV
           ssh -i ec2-key.pem -o StrictHostKeyChecking=no ec2-user@$PUBLIC_DNS << EOF
             sudo yum install git -y
             sudo yum install -y docker
@@ -75,6 +75,29 @@ jobs:
             docker-compose -f docker-compose-prod.yml up -d
             sleep 10
             curl -f http://localhost:5173/ || exit 1
+          EOF
+
+      - name: Push Docker Images to ECR
+        run: |
+          ssh -i ec2-key.pem ec2-user@${{ env.PUBLIC_DNS }} << EOF
+            export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+            export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            export AWS_SESSION_TOKEN=${{ secrets.AWS_SESSION_TOKEN }}
+            export AWS_REGION=${{ env.AWS_REGION }}
+            IMAGE_TAG=${{ env.IMAGE_TAG }}
+
+            FRONTEND_IMAGE_ID=\$(docker images --filter=reference="app-frontend" --format "{{.ID}}")
+            BACKEND_IMAGE_ID=\$(docker images --filter=reference="app-backend" --format "{{.ID}}")
+            echo "Found Docker Image ID (frontend): \$FRONTEND_IMAGE_ID"
+            echo "Found Docker Image ID (backend): \$BACKEND_IMAGE_ID"
+          
+            aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin 724379816027.dkr.ecr.\$AWS_REGION.amazonaws.com
+            
+            docker tag \$FRONTEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}:\$IMAGE_TAG
+            docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}:\$IMAGE_TAG
+            
+            docker tag \$BACKEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}:\$IMAGE_TAG
+            docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}:\$IMAGE_TAG
           EOF
 
 #      - name: Terminate Temporary EC2 Instance
