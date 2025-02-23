@@ -69,11 +69,18 @@ jobs:
             docker-compose version
             sudo dnf install -y mariadb105
             mysql --version
+            
             git clone $SOURCE_REPO app
             cd app
             mysql -h ${{ secrets.RDS_ENDPOINT }} -P 3306 -u ${{ secrets.RDS_USERNAME }} -p"${{ secrets.RDS_PASSWORD }}" ${{ secrets.RDS_DBNAME }} < db_init.sql
+            
+            export DB_HOST="${{ secrets.RDS_ENDPOINT }}"
+            export DB_USER="${{ secrets.RDS_USERNAME }}"
+            export DB_PASSWORD="${{ secrets.RDS_PASSWORD }}"
+            export DB_NAME="${{ secrets.RDS_DBNAME }}"
             docker-compose -f docker-compose-prod.yml up -d
             sleep 10
+            
             curl -f http://localhost:5173/ || exit 1
           EOF
 
