@@ -43,6 +43,7 @@ jobs:
             --output text)
           echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
           aws ec2 wait instance-running --instance-ids $INSTANCE_ID
+          sleep 10
 
       - name: Set up SSH Key
         run: |
@@ -107,9 +108,9 @@ jobs:
             docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}:\$IMAGE_TAG
           EOF
 
-      - name: Terminate Temporary EC2 Instance
-        run: |
-          aws ec2 terminate-instances --instance-ids ${{ env.INSTANCE_ID }}
+#      - name: Terminate Temporary EC2 Instance
+#        run: |
+#          aws ec2 terminate-instances --instance-ids ${{ env.INSTANCE_ID }}
 
 #      - name: Build Docker Image
 #        run: |
