@@ -79,6 +79,8 @@ jobs:
             export DB_USER="${{ secrets.RDS_USERNAME }}"
             export DB_PASSWORD="${{ secrets.RDS_PASSWORD }}"
             export DB_NAME="${{ secrets.RDS_DBNAME }}"
+          
+            export BOOK_APP_API_BASE_URL=https://tiansiwork.live/api
             docker-compose -f docker-compose-prod.yml up -d
             sleep 10
             
