@@ -73,6 +73,27 @@ jobs:
           scp -i ec2-key.pem -o StrictHostKeyChecking=no app/app-frontend.tar ec2-user@$PUBLIC_DNS:~/
           scp -i ec2-key.pem -o StrictHostKeyChecking=no app/app-backend.tar ec2-user@$PUBLIC_DNS:~/
           scp -i ec2-key.pem -o StrictHostKeyChecking=no app/app-mysql.tar ec2-user@$PUBLIC_DNS:~/
+          ssh -i ec2-key.pem -o StrictHostKeyChecking=no ec2-user@$PUBLIC_DNS "mkdir -p ~/app/"
+          scp -i ec2-key.pem -o StrictHostKeyChecking=no app/docker-compose.yml ec2-user@$PUBLIC_DNS:~/app
+          
+          
+          ssh -i ec2-key.pem -o StrictHostKeyChecking=no ec2-user@$PUBLIC_DNS << EOF
+            sudo yum install -y docker
+            sudo service docker start
+            sudo chkconfig docker on
+            sudo usermod -aG docker ec2-user
+            sudo curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+            sudo chmod +x /usr/local/bin/docker-compose
+            newgrp docker
+            docker --version
+            docker-compose version
+
+            cd app
+            docker-compose up -d
+            sleep 10
+
+            curl -o /dev/null -s -w "%{http_code}\n" http://localhost:5173/ | grep -q 200 || exit 1
+          EOF
 
 
 
