@@ -103,11 +103,15 @@ jobs:
           
             aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin 724379816027.dkr.ecr.\$AWS_REGION.amazonaws.com
             
-            docker tag \$FRONTEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}:\$IMAGE_TAG
-            docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}:\$IMAGE_TAG
+            TIMESTAMP=$(date "+%Y%m%d.%H%M%S")
             
+            docker tag \$FRONTEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}:\$TIMESTAMP
+            docker tag \$FRONTEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}:\$IMAGE_TAG
+            docker push --all-tags ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}
+            
+            docker tag \$BACKEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}:\$TIMESTAMP
             docker tag \$BACKEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}:\$IMAGE_TAG
-            docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}:\$IMAGE_TAG
+            docker push --all-tags ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}
           EOF
 
 #      - name: Terminate Temporary EC2 Instance
