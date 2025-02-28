@@ -80,11 +80,10 @@ jobs:
             export DB_PASSWORD="${{ secrets.RDS_PASSWORD }}"
             export DB_NAME="${{ secrets.RDS_DBNAME }}"
           
-            export BOOK_APP_API_BASE_URL=https://tiansiwork.live/api
-            docker-compose -f docker-compose-prod.yml up -d
+            docker-compose up -d
             sleep 10
             
-            curl -f http://localhost:5173/ || exit 1
+            curl -o /dev/null -s -w "%{http_code}\n" http://localhost:5173/ | grep -q 200 || exit 1
           EOF
 
       - name: Push Docker Images to ECR
