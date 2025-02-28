@@ -21,6 +21,20 @@ jobs:
       - name: Checkout Infra Repo
         uses: actions/checkout@v4
 
+      - name: Checkout Source Repo
+        uses: actions/checkout@v4
+        with:
+          repository: "TiansiGu/crud-react-node-mySQL-go-source"
+          path: "app"  # Directory where the repo will be cloned
+
+      - name: Build and Start Containers Using Docker Compose
+        run: |
+          cd app
+          docker compose up -d
+          docker save -o app-frontend.tar app-frontend:latest
+          docker save -o app-backend.tar app-backend:latest
+          docker save -o app-mysql.tar mysql:8.0
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -50,107 +64,95 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > ec2-key.pem
           chmod 400 ec2-key.pem
 
-      - name: Provision Application on EC2 and Run Smoke Tests
+      - name: Move images on EC2 and Run Smoke Tests
         run: |
           PUBLIC_DNS=$(aws ec2 describe-instances --instance-ids ${{ env.INSTANCE_ID }} \
             --query 'Reservations[0].Instances[0].PublicDnsName' \
             --output text)
           echo "PUBLIC_DNS=$PUBLIC_DNS" >> $GITHUB_ENV
-          ssh -i ec2-key.pem -o StrictHostKeyChecking=no ec2-user@$PUBLIC_DNS << EOF
-            sudo yum install git -y
-            sudo yum install -y docker
-            sudo service docker start
-            sudo chkconfig docker on
-            sudo usermod -aG docker ec2-user
-            sudo curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
-            sudo chmod +x /usr/local/bin/docker-compose
-            newgrp docker
-            git --version
-            docker --version
-            docker-compose version
-            sudo dnf install -y mariadb105
-            mysql --version
-            
-            git clone $SOURCE_REPO app
-            cd app
-            mysql -h ${{ secrets.RDS_ENDPOINT }} -P 3306 -u ${{ secrets.RDS_USERNAME }} -p"${{ secrets.RDS_PASSWORD }}" ${{ secrets.RDS_DBNAME }} < db_init.sql
-            
-            export DB_HOST="${{ secrets.RDS_ENDPOINT }}"
-            export DB_USER="${{ secrets.RDS_USERNAME }}"
-            export DB_PASSWORD="${{ secrets.RDS_PASSWORD }}"
-            export DB_NAME="${{ secrets.RDS_DBNAME }}"
-          
-            docker-compose up -d
-            sleep 10
-            
-            curl -o /dev/null -s -w "%{http_code}\n" http://localhost:5173/ | grep -q 200 || exit 1
-          EOF
+          scp -i ec2-key.pem -o StrictHostKeyChecking=no app/app-frontend.tar ec2-user@$PUBLIC_DNS:~/
+          scp -i ec2-key.pem -o StrictHostKeyChecking=no app/app-backend.tar ec2-user@$PUBLIC_DNS:~/
+          scp -i ec2-key.pem -o StrictHostKeyChecking=no app/app-mysql.tar ec2-user@$PUBLIC_DNS:~/
 
-      - name: Push Docker Images to ECR
-        run: |
-          ssh -i ec2-key.pem ec2-user@${{ env.PUBLIC_DNS }} << EOF
-            export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
-            export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            export AWS_SESSION_TOKEN=${{ secrets.AWS_SESSION_TOKEN }}
-            export AWS_REGION=${{ env.AWS_REGION }}
-            IMAGE_TAG=${{ env.IMAGE_TAG }}
 
-            FRONTEND_IMAGE_ID=\$(docker images --filter=reference="app-frontend" --format "{{.ID}}")
-            BACKEND_IMAGE_ID=\$(docker images --filter=reference="app-backend" --format "{{.ID}}")
-            echo "Found Docker Image ID (frontend): \$FRONTEND_IMAGE_ID"
-            echo "Found Docker Image ID (backend): \$BACKEND_IMAGE_ID"
-          
-            aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com
-            
-            TIMESTAMP=$(date "+%Y%m%d.%H%M%S")
-            
-            docker tag \$FRONTEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}:\$TIMESTAMP
-            docker tag \$FRONTEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}:\$IMAGE_TAG
-            docker push --all-tags ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}
-            
-            docker tag \$BACKEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}:\$TIMESTAMP
-            docker tag \$BACKEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}:\$IMAGE_TAG
-            docker push --all-tags ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}
-          EOF
 
-      - name: Terminate Temporary EC2 Instance
-        run: |
-          aws ec2 terminate-instances --instance-ids ${{ env.INSTANCE_ID }}
-
-      - name: Deploy to QA EC2
-        run: |
-          ssh -i ec2-key.pem -o StrictHostKeyChecking=no ec2-user@${{ secrets.QA_EC2_PUBLIC_DNS }} << EOF
-            export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
-            export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            export AWS_SESSION_TOKEN=${{ secrets.AWS_SESSION_TOKEN }}
-            export AWS_REGION=${{ env.AWS_REGION }}
-            
-            aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com
-            docker-compose -f docker-compose-qa.yml pull
-            docker-compose down
-            docker-compose -f docker-compose-qa.yml up -d
-            docker image prune -f
-          EOF
-
-#      - name: Build Docker Image
+#      - name: Provision Application on EC2 and Run Smoke Tests
 #        run: |
-#          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
-#          docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
-#          docker tag $ECR_REPOSITORY:$IMAGE_TAG ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
+#          PUBLIC_DNS=$(aws ec2 describe-instances --instance-ids ${{ env.INSTANCE_ID }} \
+#            --query 'Reservations[0].Instances[0].PublicDnsName' \
+#            --output text)
+#          echo "PUBLIC_DNS=$PUBLIC_DNS" >> $GITHUB_ENV
+#          ssh -i ec2-key.pem -o StrictHostKeyChecking=no ec2-user@$PUBLIC_DNS << EOF
+#            sudo yum install git -y
+#            sudo yum install -y docker
+#            sudo service docker start
+#            sudo chkconfig docker on
+#            sudo usermod -aG docker ec2-user
+#            sudo curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+#            sudo chmod +x /usr/local/bin/docker-compose
+#            newgrp docker
+#            git --version
+#            docker --version
+#            docker-compose version
+#            sudo dnf install -y mariadb105
+#            mysql --version
 #
-#      - name: Push Docker Image to ECR
-#        run: |
-#          docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
+#            git clone $SOURCE_REPO app
+#            cd app
 #
-#      - name: Deploy to QA EC2 Instance
-#        run: |
-#          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.QA_EC2_IP }} << EOF
-#            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
-#            docker pull ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
-#            docker stop my-app || true && docker rm my-app || true
-#            docker run -d --name my-app -p 3000:3000 ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG
+#            docker-compose up -d
+#            sleep 10
+#
+#            curl -o /dev/null -s -w "%{http_code}\n" http://localhost:5173/ | grep -q 200 || exit 1
 #          EOF
 #
-#      - name: Clean up Docker Resources
+#      - name: Push Docker Images to ECR
 #        run: |
-#          docker system prune -af
+#          ssh -i ec2-key.pem ec2-user@${{ env.PUBLIC_DNS }} << EOF
+#            export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+#            export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#            export AWS_SESSION_TOKEN=${{ secrets.AWS_SESSION_TOKEN }}
+#            export AWS_REGION=${{ env.AWS_REGION }}
+#            IMAGE_TAG=${{ env.IMAGE_TAG }}
+#
+#            FRONTEND_IMAGE_ID=\$(docker images --filter=reference="app-frontend" --format "{{.ID}}")
+#            BACKEND_IMAGE_ID=\$(docker images --filter=reference="app-backend" --format "{{.ID}}")
+#            echo "Found Docker Image ID (frontend): \$FRONTEND_IMAGE_ID"
+#            echo "Found Docker Image ID (backend): \$BACKEND_IMAGE_ID"
+#
+#            aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com
+#
+#            TIMESTAMP=$(date "+%Y%m%d.%H%M%S")
+#
+#            docker tag \$FRONTEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}:\$TIMESTAMP
+#            docker tag \$FRONTEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}:\$IMAGE_TAG
+#            docker push --all-tags ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}
+#
+#            docker tag \$BACKEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}:\$TIMESTAMP
+#            docker tag \$BACKEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}:\$IMAGE_TAG
+#            docker push --all-tags ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}
+#          EOF
+#
+#      - name: Terminate Temporary EC2 Instance
+#        run: |
+#          aws ec2 terminate-instances --instance-ids ${{ env.INSTANCE_ID }}
+#
+#      - name: Deploy to QA EC2
+#        run: |
+#          ssh -i ec2-key.pem -o StrictHostKeyChecking=no ec2-user@${{ secrets.QA_EC2_PUBLIC_DNS }} << EOF
+#            export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+#            export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#            export AWS_SESSION_TOKEN=${{ secrets.AWS_SESSION_TOKEN }}
+#            export AWS_REGION=${{ env.AWS_REGION }}
+#
+#            export DB_HOST="${{ secrets.RDS_ENDPOINT }}"
+#            export DB_USER="${{ secrets.RDS_USERNAME }}"
+#            export DB_PASSWORD="${{ secrets.RDS_PASSWORD }}"
+#            export DB_NAME="${{ secrets.RDS_DBNAME }}"
+#
+#            aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com
+#            docker-compose -f docker-compose-qa.yml pull
+#            docker-compose down
+#            docker-compose -f docker-compose-qa.yml up -d
+#            docker image prune -f
+#          EOF
