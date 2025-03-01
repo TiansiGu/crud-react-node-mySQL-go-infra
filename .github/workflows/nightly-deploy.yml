@@ -52,6 +52,7 @@ jobs:
           aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.$AWS_REGION.amazonaws.com
 
           TIMESTAMP=$(date "+%Y%m%d.%H%M%S")
+          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
 
           docker tag $FRONTEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}:$TIMESTAMP
           docker tag $FRONTEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_FRONTEND }}:$IMAGE_TAG
@@ -114,7 +115,6 @@ jobs:
           EOF
 
 
-
 #      - name: Provision Application on EC2 and Run Smoke Tests
 #        run: |
 #          PUBLIC_DNS=$(aws ec2 describe-instances --instance-ids ${{ env.INSTANCE_ID }} \
@@ -172,27 +172,37 @@ jobs:
 #            docker tag \$BACKEND_IMAGE_ID ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}:\$IMAGE_TAG
 #            docker push --all-tags ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com/${{ secrets.ECR_REPOSITORY_BACKEND }}
 #          EOF
-#
-#      - name: Terminate Temporary EC2 Instance
-#        run: |
-#          aws ec2 terminate-instances --instance-ids ${{ env.INSTANCE_ID }}
-#
-#      - name: Deploy to QA EC2
-#        run: |
-#          ssh -i ec2-key.pem -o StrictHostKeyChecking=no ec2-user@${{ secrets.QA_EC2_PUBLIC_DNS }} << EOF
-#            export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
-#            export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-#            export AWS_SESSION_TOKEN=${{ secrets.AWS_SESSION_TOKEN }}
-#            export AWS_REGION=${{ env.AWS_REGION }}
-#
-#            export DB_HOST="${{ secrets.RDS_ENDPOINT }}"
-#            export DB_USER="${{ secrets.RDS_USERNAME }}"
-#            export DB_PASSWORD="${{ secrets.RDS_PASSWORD }}"
-#            export DB_NAME="${{ secrets.RDS_DBNAME }}"
-#
-#            aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com
-#            docker-compose -f docker-compose-qa.yml pull
-#            docker-compose down
-#            docker-compose -f docker-compose-qa.yml up -d
-#            docker image prune -f
-#          EOF
+
+      - name: Deploy to QA EC2
+        if: success()
+        run: |
+          echo "Smoke test succeeded. Deploying latest images to QA..."
+          ssh -i ec2-key.pem -o StrictHostKeyChecking=no ec2-user@${{ secrets.QA_EC2_PUBLIC_DNS }} << EOF
+            export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+            export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            export AWS_SESSION_TOKEN=${{ secrets.AWS_SESSION_TOKEN }}
+            export AWS_REGION=${{ env.AWS_REGION }}
+
+            export DB_HOST="${{ secrets.RDS_ENDPOINT }}"
+            export DB_USER="${{ secrets.RDS_USERNAME }}"
+            export DB_PASSWORD="${{ secrets.RDS_PASSWORD }}"
+            export DB_NAME="${{ secrets.RDS_DBNAME }}"
+
+            aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com
+            docker-compose -f docker-compose-qa.yml pull
+            docker-compose down
+            docker-compose -f docker-compose-qa.yml up -d
+            docker image prune -f
+          EOF
+
+      - name: Delete Images in ECR if Test Fails
+        if: failure()
+        run: |
+          echo "Smoke test failed. Cleaning up Docker images in ECR..."
+          aws ecr batch-delete-image --repository-name book-app/frontend --image-ids imageTag=${{ env.TIMESTAMP }}
+          aws ecr batch-delete-image --repository-name book-app/backend --image-ids imageTag=${{ env.TIMESTAMP }}
+        
+
+      - name: Terminate Temporary EC2 Instance
+        run: |
+          aws ec2 terminate-instances --instance-ids ${{ env.INSTANCE_ID }}
