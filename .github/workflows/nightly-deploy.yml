@@ -86,7 +86,13 @@ jobs:
             --query 'Reservations[0].Instances[0].PublicDnsName' \
             --output text)
           echo "PUBLIC_DNS=$PUBLIC_DNS" >> $GITHUB_ENV
-          scp -i ec2-key.pem -o StrictHostKeyChecking=no app/docker-compose-test.yml ec2-user@$PUBLIC_DNS:~/
+          ssh -i ec2-key.pem -o StrictHostKeyChecking=no ec2-user@$PUBLIC_DNS << EOF
+            mkdir app
+          EOF
+          
+          scp -i ec2-key.pem -o StrictHostKeyChecking=no app/db_init.sql ec2-user@$PUBLIC_DNS:~/app
+          scp -i ec2-key.pem -o StrictHostKeyChecking=no app/docker-compose-test.yml ec2-user@$PUBLIC_DNS:~/app
+          
           ssh -i ec2-key.pem -o StrictHostKeyChecking=no ec2-user@$PUBLIC_DNS << EOF
             sudo yum install -y docker
             sudo service docker start
@@ -105,6 +111,7 @@ jobs:
             export AWS_REGION=${{ env.AWS_REGION }}
 
             aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.\$AWS_REGION.amazonaws.com
+            cd app
             docker-compose -f docker-compose-test.yml up -d
             sleep 10
             docker ps
